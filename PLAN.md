@@ -6,10 +6,10 @@ Branch: `agent/task1-llm-pipeline`
 
 ## Phase 0 — Dependencies & Config
 
-- [ ] Uncomment `bcrypt` in Gemfile; add `gem "anthropic"`
+- [ ] Uncomment `bcrypt` in Gemfile; add `gem "ruby-openai"`
 - [ ] Switch ActionCable adapter in `config/cable.yml` → Redis (development + production)
 - [ ] Configure Sidekiq initializer (`config/initializers/sidekiq.rb`) with Redis URL
-- [ ] Add `ANTHROPIC_API_KEY`, `REDIS_URL` to credentials / `.env.example`
+- [ ] Add `XAI_API_KEY`, `REDIS_URL` to credentials / `.env.example`
 
 ---
 
@@ -141,7 +141,7 @@ sidekiq_options queue: :llm, retry: 3
 1. `return if message.completed?`  — idempotency guard
 2. `message.update!(status: :streaming)`
 3. Build conversation history from prior messages
-4. Call `Anthropic::Client.new.messages.create(...)` (non-streaming first pass; add streaming in extension)
+4. Call Grok via `OpenAI::Client.new(access_token: ENV["XAI_API_KEY"], uri_base: "https://api.x.ai/v1").chat(...)` with model `grok-3-mini`
 5. Create assistant `Message` with `role: :assistant`, `status: :completed`, `tokens_used: response.usage.output_tokens`
 6. Broadcast both messages via `Turbo::StreamsChannel.broadcast_append_to`
 
