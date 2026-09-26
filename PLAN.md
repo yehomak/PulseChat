@@ -108,8 +108,10 @@ end
 
 ## Phase 4 — Controller
 
-### `SessionsController`
-Simple email/password login; sets `session[:user_id]`.
+### Auth (generator-owned — do not hand-roll)
+`rails generate authentication` provides `SessionsController`, `PasswordsController`,
+`Current`, `Session` model, and the `Authentication` concern with `authenticate_user!`
+and `Current.user`. Uses `email_address` (not `email`) per Rails 8 convention.
 
 ### `ConversationsController`
 `index`, `show` — scoped to `Current.user`.
