@@ -66,3 +66,7 @@ group :test do
   gem "capybara"
   gem "selenium-webdriver"
 end
+
+gem "redis", "~> 6.0"
+
+gem "sidekiq", "~> 8.1"
