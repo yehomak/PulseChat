@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 class ConversationsController < ApplicationController
-  before_action :set_conversation, only: [:show, :edit, :update, :destroy]
+  before_action :set_conversation, only: [ :show, :destroy ]
 
   def index
     @conversations = Current.user.conversations.recent
@@ -37,6 +37,6 @@ class ConversationsController < ApplicationController
   end
 
   def conversation_params
-    params.expect(conversation: [:title])
+    params.expect(conversation: [ :title ])
   end
 end

@@ -37,7 +37,7 @@ class MessagesController < ApplicationController
   end
 
   def message_params
-    params.expect(message: [:content])
+    params.expect(message: [ :content ])
   end
 
   def estimate_cost(content)

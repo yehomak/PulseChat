@@ -54,12 +54,12 @@ class LlmInferenceJob < ApplicationJob
   def call_grok(history)
     client = OpenAI::Client.new(
       access_token: ENV.fetch("XAI_API_KEY"),
-      uri_base:     "https://api.x.ai/v1"
+      uri_base:     "https://api.groq.com/openai/v1"
     )
 
     response = client.chat(
       parameters: {
-        model:      "grok-3-mini",
+        model:      "qwen/qwen3.8-27b",
         messages:   history,
         max_tokens: 1000
       }
