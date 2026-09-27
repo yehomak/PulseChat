@@ -60,4 +60,61 @@ class MessagesTest < ActionDispatch::IntegrationTest
          params: { message: { content: "sneaky" } }
     assert_redirected_to new_session_path
   end
+
+  # Cancel action tests
+
+  test "cancel sets message to cancelled and writes Redis key" do
+    message = @conversation.messages.create!(role: :user_message, content: "hi", status: :streaming)
+
+    patch cancel_conversation_message_path(@conversation, message)
+
+    assert_response :no_content
+    assert message.reload.status_cancelled?
+    assert $redis.exists("cancel:message:#{message.id}") == 1
+  ensure
+    $redis.del("cancel:message:#{message.id}")
+  end
+
+  test "cancel on pending message also succeeds" do
+    message = @conversation.messages.create!(role: :user_message, content: "hi", status: :pending)
+
+    patch cancel_conversation_message_path(@conversation, message)
+
+    assert_response :no_content
+    assert message.reload.status_cancelled?
+  ensure
+    $redis.del("cancel:message:#{message.id}")
+  end
+
+  test "cancel on completed message returns 422 and does not write Redis key" do
+    message = @conversation.messages.create!(role: :user_message, content: "hi", status: :completed)
+
+    patch cancel_conversation_message_path(@conversation, message)
+
+    assert_response :unprocessable_entity
+    assert message.reload.status_completed?
+    assert $redis.exists("cancel:message:#{message.id}") == 0
+  end
+
+  test "cannot cancel another user's message" do
+    other_user = User.create!(email_address: "other@example.com", password: "password123", token_balance: 0)
+    other_conversation = other_user.conversations.create!(title: "Other chat")
+    other_message = other_conversation.messages.create!(role: :user_message, content: "hi", status: :streaming)
+
+    patch cancel_conversation_message_path(other_conversation, other_message)
+
+    assert_response :not_found
+    assert other_message.reload.status_streaming?
+  end
+
+  test "cancel Redis key expires after TTL and a second cancel on same message returns 422" do
+    message = @conversation.messages.create!(role: :user_message, content: "hi", status: :streaming)
+    patch cancel_conversation_message_path(@conversation, message)
+    assert_response :no_content
+
+    patch cancel_conversation_message_path(@conversation, message)
+    assert_response :unprocessable_entity
+  ensure
+    $redis.del("cancel:message:#{message.id}")
+  end
 end
