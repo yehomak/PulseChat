@@ -10,12 +10,14 @@ class LlmInferenceJob < ApplicationJob
 
   def perform(message_id)
     message = Message.find(message_id)
-    return if message.status_completed? || message.status_failed?
+    return if message.status_completed? || message.status_failed? || message.status_cancelled?
 
     message.update!(status: :streaming)
 
     history  = build_history(message)
     content, tokens_used = call_grok(history)
+
+    return if $redis.getdel("cancel:message:#{message_id}").present? || message.reload.status_cancelled?
 
     assistant_message = message.conversation.messages.create!(
       role:        :assistant,
@@ -34,7 +36,7 @@ class LlmInferenceJob < ApplicationJob
       Rails.logger.error("LlmInferenceJob broadcast error: #{e.class} #{e.message}")
     end
   rescue => e
-    message&.update(status: :failed)
+    message&.update(status: :failed) unless message&.status_cancelled?
     raise
   end
 
@@ -78,14 +80,14 @@ class LlmInferenceJob < ApplicationJob
       conversation,
       target:  ActionView::RecordIdentifier.dom_id(user_message),
       partial: "messages/message",
-      locals:  { message: user_message }
+      locals:  { message: user_message, conversation: conversation }
     )
 
     Turbo::StreamsChannel.broadcast_append_to(
       conversation,
       target:  "messages",
       partial: "messages/message",
-      locals:  { message: assistant_message }
+      locals:  { message: assistant_message, conversation: conversation }
     )
   end
 end
