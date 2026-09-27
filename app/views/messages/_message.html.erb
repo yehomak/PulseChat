@@ -7,6 +7,13 @@
     <%= message.content %>
     <% if message.status_pending? || message.status_streaming? %>
       <span class="inline-block ml-1 animate-pulse text-gray-400">…</span>
+      <%= button_to "Stop", cancel_conversation_message_path(conversation, message),
+            method: :patch,
+            class: "ml-2 text-xs text-red-400 hover:text-red-600 underline" %>
+    <% elsif message.status_cancelled? %>
+      <span class="ml-2 text-xs text-gray-400 italic">Generation stopped</span>
+    <% elsif message.status_failed? %>
+      <span class="ml-2 text-xs text-red-400 italic">Generation failed</span>
     <% end %>
   </div>
 </div>

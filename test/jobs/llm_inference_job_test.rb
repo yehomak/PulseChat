@@ -20,6 +20,19 @@ class LlmInferenceJobTest < ActiveJob::TestCase
     end
   end
 
+  # Subclass with a cancellation Redis key already set when Grok "returns"
+  CancelledMidFlightJob = Class.new(LlmInferenceJob) do
+    def call_grok(_history)
+      $redis.setex("cancel:message:#{@current_message_id}", 600, "1")
+      [ "partial reply", 5 ]
+    end
+
+    def perform(message_id)
+      @current_message_id = message_id
+      super
+    end
+  end
+
   setup do
     @user = User.create!(
       email_address: "job@example.com",
@@ -66,5 +79,33 @@ class LlmInferenceJobTest < ActiveJob::TestCase
     # still runs before that, so the status is set to :failed.
     ErrorJob.perform_now(@message.id)
     assert @message.reload.status_failed?
+  end
+
+  test "idempotency — skips if message already cancelled" do
+    @message.update!(status: :cancelled)
+
+    assert_no_difference -> { @conversation.messages.count } do
+      SuccessJob.perform_now(@message.id)
+    end
+  end
+
+  test "job detects Redis cancel signal and does not create assistant message" do
+    assert_no_difference -> { @conversation.messages.count } do
+      CancelledMidFlightJob.perform_now(@message.id)
+    end
+
+    assert_equal 0, $redis.exists("cancel:message:#{@message.id}"),
+      "GETDEL should have consumed the cancel key"
+  ensure
+    $redis.del("cancel:message:#{@message.id}")
+  end
+
+  test "API error on cancelled message does not overwrite status with failed" do
+    @message.update!(status: :cancelled)
+
+    ErrorJob.perform_now(@message.id)
+
+    assert @message.reload.status_cancelled?,
+      "rescue must not overwrite cancelled status with failed"
   end
 end
