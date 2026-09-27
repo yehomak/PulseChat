@@ -1,19 +1,33 @@
-<div id="<%= dom_id(message) %>" class="flex gap-3 px-4 py-3 <%= message.role_assistant? ? 'bg-gray-50' : '' %>">
-  <span class="text-xs font-semibold uppercase tracking-wide text-gray-400 w-16 shrink-0 pt-0.5">
-    <%= message.role_assistant? ? "AI" : "You" %>
-  </span>
-
-  <div class="flex-1 text-sm text-gray-800">
-    <%= message.content %>
-    <% if message.status_pending? || message.status_streaming? %>
-      <span class="inline-block ml-1 animate-pulse text-gray-400">…</span>
-      <%= button_to "Stop", cancel_conversation_message_path(conversation, message),
-            method: :patch,
-            class: "ml-2 text-xs text-red-400 hover:text-red-600 underline" %>
-    <% elsif message.status_cancelled? %>
-      <span class="ml-2 text-xs text-gray-400 italic">Generation stopped</span>
-    <% elsif message.status_failed? %>
-      <span class="ml-2 text-xs text-red-400 italic">Generation failed</span>
-    <% end %>
+<% if message.role_user_message? %>
+  <div id="<%= dom_id(message) %>" class="flex justify-end px-8 py-1">
+    <div class="max-w-lg">
+      <div class="bg-[#ede9e3] rounded-2xl rounded-br-sm px-4 py-3 text-sm text-gray-800 leading-relaxed">
+        <%= message.content %>
+        <% if message.status_pending? || message.status_streaming? %>
+          <span class="inline-block ml-1 animate-pulse text-gray-400">…</span>
+        <% end %>
+      </div>
+      <% if message.status_pending? || message.status_streaming? %>
+        <div class="flex justify-end mt-1">
+          <%= button_to cancel_conversation_message_path(conversation, message), method: :patch,
+                class: "text-[11px] text-gray-400 hover:text-red-400 transition-colors flex items-center gap-1" do %>
+            <span class="inline-block w-2 h-2 bg-current rounded-sm"></span> Stop
+          <% end %>
+        </div>
+      <% elsif message.status_cancelled? %>
+        <p class="text-right text-[11px] text-gray-400 mt-1 italic">Generation stopped</p>
+      <% elsif message.status_failed? %>
+        <p class="text-right text-[11px] text-red-400 mt-1 italic">Generation failed</p>
+      <% end %>
+    </div>
   </div>
-</div>
+<% else %>
+  <div id="<%= dom_id(message) %>" class="flex gap-3 px-8 py-3">
+    <div class="w-6 h-6 rounded-full bg-[#cc785c] flex items-center justify-center shrink-0 mt-0.5">
+      <span class="text-white text-[10px] font-bold">P</span>
+    </div>
+    <div class="flex-1 text-sm text-gray-800 leading-relaxed pt-0.5">
+      <%= message.content %>
+    </div>
+  </div>
+<% end %>
