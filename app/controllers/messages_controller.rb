@@ -2,6 +2,7 @@
 
 class MessagesController < ApplicationController
   before_action :set_conversation
+  before_action :set_message, only: [ :cancel ]
 
   def create
     unless RateLimiter.new(user_id: Current.user.id).allowed?
@@ -30,10 +31,34 @@ class MessagesController < ApplicationController
     end
   end
 
+  def cancel
+    return head :unprocessable_entity if @message.status_completed? || @message.status_failed? || @message.status_cancelled?
+
+    @message.status_cancelled!
+    $redis.setex("cancel:message:#{@message.id}", 600, "1")
+
+    begin
+      Turbo::StreamsChannel.broadcast_replace_to(
+        @conversation,
+        target:  ActionView::RecordIdentifier.dom_id(@message),
+        partial: "messages/message",
+        locals:  { message: @message, conversation: @conversation }
+      )
+    rescue => e
+      Rails.logger.error("cancel broadcast error: #{e.class} #{e.message}")
+    end
+
+    head :no_content
+  end
+
   private
 
   def set_conversation
     @conversation = Current.user.conversations.find(params[:conversation_id])
+  end
+
+  def set_message
+    @message = @conversation.messages.find(params[:id])
   end
 
   def message_params
