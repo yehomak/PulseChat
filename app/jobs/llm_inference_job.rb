@@ -36,7 +36,10 @@ class LlmInferenceJob < ApplicationJob
       Rails.logger.error("LlmInferenceJob broadcast error: #{e.class} #{e.message}")
     end
   rescue => e
-    message&.update(status: :failed) unless message&.status_cancelled?
+    unless message&.status_cancelled?
+      message&.update(status: :failed)
+      broadcast_status(message) if message
+    end
     raise
   end
 
@@ -71,6 +74,17 @@ class LlmInferenceJob < ApplicationJob
     tokens_used = response.dig("usage", "completion_tokens").to_i
 
     [ content, tokens_used ]
+  end
+
+  def broadcast_status(message)
+    Turbo::StreamsChannel.broadcast_replace_to(
+      message.conversation,
+      target:  ActionView::RecordIdentifier.dom_id(message),
+      partial: "messages/message",
+      locals:  { message: message, conversation: message.conversation }
+    )
+  rescue => e
+    Rails.logger.error("LlmInferenceJob status broadcast error: #{e.class} #{e.message}")
   end
 
   def broadcast(user_message, assistant_message)
