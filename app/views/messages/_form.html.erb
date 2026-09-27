@@ -1,6 +1,7 @@
 <%= form_with url: conversation_messages_path(conversation), scope: :message,
       id: "message_form",
-      data: { turbo_stream: true, controller: "message-form" },
+      data: { turbo_stream: true, controller: "message-form",
+              action: "turbo:submit-end->message-form#onSubmitEnd" },
       class: "shrink-0 px-8 py-5 border-t border-[#ede9e3]" do |f| %>
   <div class="relative flex items-end gap-2 bg-white rounded-2xl border border-[#e0dbd4] shadow-sm focus-within:border-[#c8c2ba] focus-within:shadow transition-shadow">
     <%= f.text_area :content,
