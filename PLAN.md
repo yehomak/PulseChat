@@ -130,7 +130,7 @@ and `Current.user`. Uses `email_address` (not `email`) per Rails 8 convention.
 
 3. message = conversation.messages.create!(role: :user_message, content: ..., status: :pending)
 
-4. LlmInferenceJob.perform_async(message.id)  # primitive id only — never the AR object
+4. LlmInferenceJob.perform_later(message.id)  # primitive id only — never the AR object
 
 5. respond_to { turbo_stream → render pending message partial; html → redirect }
 ```
