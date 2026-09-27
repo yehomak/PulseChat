@@ -16,7 +16,7 @@
 
   <%# Message list %>
   <div id="messages" class="flex-1 overflow-y-auto py-4 space-y-1">
-    <%= render @messages %>
+    <%= render partial: "messages/message", collection: @messages, locals: { conversation: @conversation } %>
   </div>
 
   <%# Message form %>
