@@ -26,7 +26,7 @@
   </div>
 
   <%# Messages %>
-  <div id="messages" class="flex-1 overflow-y-auto py-6 space-y-1">
+  <div id="messages" class="flex-1 overflow-y-auto py-6 space-y-1" data-controller="scroll-bottom">
     <%= render partial: "messages/message", collection: @messages, locals: { conversation: @conversation } %>
   </div>
 
