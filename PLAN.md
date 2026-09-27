@@ -6,10 +6,10 @@ Branch: `agent/task1-llm-pipeline`
 
 ## Phase 0 — Dependencies & Config
 
-- [ ] Uncomment `bcrypt` in Gemfile; add `gem "anthropic"`
+- [ ] Uncomment `bcrypt` in Gemfile; add `gem "ruby-openai"`
 - [ ] Switch ActionCable adapter in `config/cable.yml` → Redis (development + production)
 - [ ] Configure Sidekiq initializer (`config/initializers/sidekiq.rb`) with Redis URL
-- [ ] Add `ANTHROPIC_API_KEY`, `REDIS_URL` to credentials / `.env.example`
+- [ ] Add `XAI_API_KEY`, `REDIS_URL` to credentials / `.env.example`
 
 ---
 
@@ -22,7 +22,7 @@ Branch: `agent/task1-llm-pipeline`
 | 1 | `create_users` | `users` — email, password_digest, token_balance (integer, default 10_000) |
 | 2 | `create_conversations` | `conversations` — user_id FK, title string |
 | 3 | `create_messages` | `messages` — conversation_id FK, role (user/assistant), content text, status integer (pending/streaming/completed/failed), tokens_used integer |
-| 4 | `add_indexes` | composite `(conversation_id, created_at)` on messages; index on `conversations.user_id` |
+| 4 | `add_indexes` | `add_index :messages, [:conversation_id, :created_at]`; index on `conversations.user_id` |
 
 ### Schema notes
 - `messages.status` is an integer-backed enum; default `0` (pending).
@@ -70,11 +70,19 @@ API:
 RateLimiter.new(user_id: id).allowed?   # returns true/false
 ```
 
-Internals (wrapped in `redis.multi`):
-1. `ZREMRANGEBYSCORE key 0 (now - window_ms)`  — evict old entries
-2. `ZCARD key`                                  — count current
-3. If count < limit: `ZADD key score member`; `EXPIRE key window`; return true
-4. Else: return false
+Internals — pipeline executes atomically, result evaluated in Ruby after:
+```ruby
+results = $redis.multi do |r|
+  r.zadd(key, now_ms, now_ms.to_s)          # always add optimistically
+  r.zremrangebyscore(key, 0, now_ms - window_ms)  # evict stale entries
+  r.expire(key, window_seconds)
+  r.zcard(key)                               # count after eviction
+end
+results[3] <= limit                          # true = allowed; false = over limit
+# If over limit, caller treats the ZADD as a no-op — the entry expires with the key
+```
+
+Note: ZCARD result is only available **after** `multi` returns — never branch inside the block.
 
 ### `TokenLedger` (`app/services/token_ledger.rb`)
 
@@ -100,8 +108,10 @@ end
 
 ## Phase 4 — Controller
 
-### `SessionsController`
-Simple email/password login; sets `session[:user_id]`.
+### Auth (generator-owned — do not hand-roll)
+`rails generate authentication` provides `SessionsController`, `PasswordsController`,
+`Current`, `Session` model, and the `Authentication` concern with `authenticate_user!`
+and `Current.user`. Uses `email_address` (not `email`) per Rails 8 convention.
 
 ### `ConversationsController`
 `index`, `show` — scoped to `Current.user`.
@@ -120,7 +130,7 @@ Simple email/password login; sets `session[:user_id]`.
 
 3. message = conversation.messages.create!(role: :user_message, content: ..., status: :pending)
 
-4. LlmInferenceJob.perform_async(message.id)
+4. LlmInferenceJob.perform_later(message.id)  # primitive id only — never the AR object
 
 5. respond_to { turbo_stream → render pending message partial; html → redirect }
 ```
@@ -141,7 +151,7 @@ sidekiq_options queue: :llm, retry: 3
 1. `return if message.completed?`  — idempotency guard
 2. `message.update!(status: :streaming)`
 3. Build conversation history from prior messages
-4. Call `Anthropic::Client.new.messages.create(...)` (non-streaming first pass; add streaming in extension)
+4. Call Grok via `OpenAI::Client.new(access_token: ENV["XAI_API_KEY"], uri_base: "https://api.x.ai/v1").chat(...)` with model `grok-3-mini`
 5. Create assistant `Message` with `role: :assistant`, `status: :completed`, `tokens_used: response.usage.output_tokens`
 6. Broadcast both messages via `Turbo::StreamsChannel.broadcast_append_to`
 

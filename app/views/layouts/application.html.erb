@@ -1,13 +1,14 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <title><%= content_for(:title) || "Ever Chat" %></title>
+    <title><%= content_for(:title) || "PulseChat" %></title>
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="application-name" content="Ever Chat">
+    <meta name="application-name" content="PulseChat">
     <meta name="mobile-web-app-capable" content="yes">
     <%= csrf_meta_tags %>
     <%= csp_meta_tag %>
+    <%= action_cable_meta_tag %>
 
     <%= yield :head %>
 
@@ -24,6 +25,13 @@
   </head>
 
   <body>
+    <div id="flash" class="fixed top-4 right-4 z-50 space-y-2">
+      <% flash.each do |type, message| %>
+        <div class="rounded-lg px-4 py-3 text-sm shadow <%= type == 'alert' ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700' %>">
+          <%= message %>
+        </div>
+      <% end %>
+    </div>
     <main class="container mx-auto mt-28 px-5 flex">
       <%= yield %>
     </main>

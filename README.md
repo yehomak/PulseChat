@@ -43,7 +43,7 @@ A practice Rails 8 monolith demonstrating a high-concurrency, real-time AI messa
 | Real-time | ActionCable (Redis adapter) + Turbo Streams |
 | Rate limiting | Redis ZSET sliding window |
 | Token ledger | PostgreSQL `SELECT … FOR UPDATE` |
-| AI | Anthropic Claude (via `anthropic` gem) |
+| AI | xAI Grok (OpenAI-compatible API via `ruby-openai` gem) |
 | Frontend | Hotwire (Turbo + Stimulus) + Tailwind CSS |
 | Assets | Propshaft + importmap |
 
@@ -77,7 +77,7 @@ Environment variables (copy `.env.example` → `.env`):
 
 | Variable | Purpose |
 |---|---|
-| `ANTHROPIC_API_KEY` | Anthropic API key for LLM inference |
+| `XAI_API_KEY` | xAI API key for Grok inference |
 | `REDIS_URL` | Redis connection (default: `redis://localhost:6379/0`) |
 | `DATABASE_URL` | PostgreSQL connection string |
 
