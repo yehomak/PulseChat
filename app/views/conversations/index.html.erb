@@ -1,0 +1,25 @@
+<% content_for :title, "Conversations — PulseChat" %>
+
+<div class="w-full max-w-2xl mx-auto">
+  <div class="flex items-center justify-between mb-6">
+    <h1 class="text-2xl font-semibold text-gray-900">Conversations</h1>
+    <%= link_to "New chat", new_conversation_path,
+          class: "rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500" %>
+  </div>
+
+  <% if @conversations.empty? %>
+    <p class="text-gray-500 text-sm">No conversations yet. Start one above.</p>
+  <% else %>
+    <ul class="divide-y divide-gray-100 rounded-xl border border-gray-200">
+      <% @conversations.each do |conversation| %>
+        <li>
+          <%= link_to conversation_path(conversation),
+                class: "flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition" do %>
+            <span class="text-sm font-medium text-gray-800"><%= conversation.title %></span>
+            <span class="text-xs text-gray-400"><%= time_ago_in_words(conversation.created_at) %> ago</span>
+          <% end %>
+        </li>
+      <% end %>
+    </ul>
+  <% end %>
+</div>

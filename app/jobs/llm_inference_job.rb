@@ -26,7 +26,13 @@ class LlmInferenceJob < ApplicationJob
 
     message.update!(status: :completed)
 
-    broadcast(message, assistant_message)
+    begin
+      broadcast(message, assistant_message)
+    rescue => e
+      # Broadcast failure is non-fatal — message is already persisted as completed.
+      # Log and move on rather than rolling back visible state or triggering a retry.
+      Rails.logger.error("LlmInferenceJob broadcast error: #{e.class} #{e.message}")
+    end
   rescue => e
     message&.update(status: :failed)
     raise

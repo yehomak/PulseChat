@@ -37,7 +37,8 @@ class LlmInferenceJobTest < ActiveJob::TestCase
 
     assert @message.reload.status_completed?
 
-    assistant = @conversation.messages.reload.last
+    assistant = @conversation.messages.where(role: :assistant).last
+    assert assistant, "expected an assistant message to be created"
     assert assistant.role_assistant?
     assert_equal FAKE_REPLY, assistant.content
     assert_equal FAKE_TOKENS, assistant.tokens_used
