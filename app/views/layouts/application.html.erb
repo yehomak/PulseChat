@@ -12,27 +12,23 @@
 
     <%= yield :head %>
 
-    <%# Enable PWA manifest for installable apps (make sure to enable in config/routes.rb too!) %>
-    <%#= tag.link rel: "manifest", href: pwa_manifest_path(format: :json) %>
-
     <link rel="icon" href="/icon.png" type="image/png">
     <link rel="icon" href="/icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/icon.png">
 
-    <%# Includes all stylesheet files in app/assets/stylesheets %>
     <%= stylesheet_link_tag :app, "data-turbo-track": "reload" %>
     <%= javascript_importmap_tags %>
   </head>
 
-  <body>
+  <body class="bg-[#f9f7f4] text-gray-900 antialiased" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif">
     <div id="flash" class="fixed top-4 right-4 z-50 space-y-2">
       <% flash.each do |type, message| %>
-        <div class="rounded-lg px-4 py-3 text-sm shadow <%= type == 'alert' ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700' %>">
+        <div class="rounded-lg px-4 py-3 text-sm shadow-sm <%= type == 'alert' ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-700' %>">
           <%= message %>
         </div>
       <% end %>
     </div>
-    <main class="container mx-auto mt-28 px-5 flex">
+    <main class="<%= content_for?(:main_class) ? yield(:main_class) : 'container mx-auto mt-28 px-5 flex' %>">
       <%= yield %>
     </main>
   </body>
