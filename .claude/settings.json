@@ -1,0 +1,35 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {"type": "command", "command": "bash .claude/hooks/migration-guard.sh"}
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write",
+        "hooks": [
+          {"type": "command", "command": "bash .claude/hooks/frozen-string-literal.sh"},
+          {"type": "command", "command": "bash .claude/hooks/callback-lint.sh"},
+          {"type": "command", "command": "bash .claude/hooks/secret-scan.sh"}
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {"type": "command", "command": "bash .claude/hooks/n1-detector.sh"}
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {"type": "command", "command": "bash .claude/hooks/rubocop-gate.sh"}
+        ]
+      }
+    ]
+  }
+}

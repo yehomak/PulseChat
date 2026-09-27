@@ -1,0 +1,24 @@
+<% content_for :title, "#{@conversation.title} — PulseChat" %>
+
+<%= turbo_stream_from @conversation %>
+
+<div class="w-full max-w-2xl mx-auto flex flex-col" style="height: calc(100vh - 7rem)">
+  <%# Header %>
+  <div class="flex items-center justify-between pb-4 border-b border-gray-200 shrink-0">
+    <div>
+      <%= link_to "← Back", conversations_path, class: "text-xs text-gray-400 hover:text-gray-600 mb-1 block" %>
+      <h1 class="text-lg font-semibold text-gray-900"><%= @conversation.title %></h1>
+    </div>
+    <%= button_to "Delete", conversation_path(@conversation), method: :delete,
+          class: "text-xs text-red-400 hover:text-red-600",
+          data: { turbo_confirm: "Delete this conversation?" } %>
+  </div>
+
+  <%# Message list %>
+  <div id="messages" class="flex-1 overflow-y-auto py-4 space-y-1">
+    <%= render @messages %>
+  </div>
+
+  <%# Message form %>
+  <%= render "messages/form", conversation: @conversation %>
+</div>
