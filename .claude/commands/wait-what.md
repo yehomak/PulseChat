@@ -1,5 +1,4 @@
 ---
-disable-model-invocation: true
 description: Re-pitch the last response in plain English using this project's vocabulary
 ---
 

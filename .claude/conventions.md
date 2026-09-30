@@ -4,12 +4,42 @@ Read this file before creating, placing, or naming any file.
 
 ---
 
+## When to invoke agents (automatic rules — do not wait to be asked)
+
+| Trigger | Agent to invoke | Why |
+|---|---|---|
+| About to write a job file | `job-agent` | Queue selection, retry strategy, idempotency — design before you write |
+| About to write any broadcast or ActionCable code | `turbo-agent` | Broadcast scoping, stream naming, AnyCable compat |
+| Finished writing any layer (model / service / controller / job) | `rails-reviewer` | N+1, callback safety, scoping, migration safety — catch before moving on |
+| `n1-detector` hook warns after a test run | `query-agent` | Fix the N+1 before writing the next layer |
+| A query touches a table with no clear `includes` plan | `query-agent` | Prevents N+1 being discovered later |
+
+Invoke `rails-reviewer` after **every** layer without waiting for a problem. It is faster to catch issues immediately than after the whole feature is built.
+
+## When to invoke a skill (Claude invokes these directly via the Skill tool)
+
+| Situation | Invoke |
+|---|---|
+| Need a new migration | `Skill("migrate", args: "<description>")` |
+| Tests are red and the cause is unclear after 1 attempt | `Skill("diagnosing-bugs")` |
+
+Do not attempt to fix a broken test more than once without invoking `diagnosing-bugs`. Hypothesizing without a reproducible failure wastes time.
+
+## When to tell the user to run a command (user-only — Claude cannot invoke these)
+
+| Situation | Tell user to run |
+|---|---|
+| Approaching context limit or switching tasks | `/handoff` |
+| About to commit | `/commit` |
+| About to open a PR | `/pr` |
+
+---
+
 ## Branch naming
 
 | Pattern | When |
 |---|---|
-| `agent/<topic>-<short-desc>` | AI-assisted work (`agent/task1-reactions`, `agent/task2-archive`) |
-| `feat/<desc>` | New feature (manual) |
+| `feat/<desc>` | New feature |
 | `fix/<desc>` | Bug fix |
 | `db/<desc>` | Migration only |
 | `refactor/<desc>` | No behaviour change |
