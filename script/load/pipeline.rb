@@ -9,13 +9,12 @@
 # Only touches users whose email starts with "load_"; they are wiped at the start of every run.
 
 require "sidekiq/api"
+require_relative "support"
 
 $stdout.sync = true
 
 module LoadTest
-  EMAIL_PREFIX = "load_"
-  DONE         = %w[completed failed cancelled].freeze
-  BATCH        = 10_000
+  DONE = %w[completed failed cancelled].freeze
 
   module_function
 
@@ -24,7 +23,7 @@ module LoadTest
     timeout  = ENV.fetch("TIMEOUT", "900").to_i
 
     preflight!
-    cleanup!
+    LoadSupport.cleanup!
 
     message_ids =
       case scenario
@@ -55,30 +54,6 @@ module LoadTest
     abort "llm queue / retry / scheduled sets not empty (#{backlog}). Clear them for a clean run." if backlog.positive?
   end
 
-  def cleanup!
-    user_ids = User.where("email_address LIKE ?", "#{EMAIL_PREFIX}%").ids
-    return if user_ids.empty?
-
-    conversation_ids = Conversation.where(user_id: user_ids).ids
-    Message.where(conversation_id: conversation_ids).in_batches(of: BATCH).delete_all
-    Conversation.where(id: conversation_ids).delete_all
-    Session.where(user_id: user_ids).delete_all
-    User.where(id: user_ids).delete_all
-    puts "Cleaned up #{user_ids.size} previous load users"
-  end
-
-  def seed_users(count)
-    digest = BCrypt::Password.create("password", cost: BCrypt::Engine::MIN_COST)
-    now    = Time.current
-    rows   = Array.new(count) do |i|
-      { email_address: "#{EMAIL_PREFIX}#{i}@example.com", password_digest: digest, created_at: now, updated_at: now }
-    end
-    user_ids = User.insert_all!(rows, returning: :id).rows.flatten
-
-    conv_rows = user_ids.map { { user_id: _1, title: "Load test", created_at: now, updated_at: now } }
-    Conversation.insert_all!(conv_rows, returning: :id).rows.flatten
-  end
-
   def pending_rows(conversation_ids, per_conversation)
     now = Time.current
     conversation_ids.flat_map do |cid|
@@ -94,13 +69,13 @@ module LoadTest
 
   def seed_spread(users:, per_user:)
     puts "Seeding spread: #{users} users x #{per_user} messages"
-    insert_pending(seed_users(users), per_user)
+    insert_pending(LoadSupport.seed_users(users).map(&:last), per_user)
   end
 
   # Pre-fills each conversation with SIZE completed messages so build_history has real work to do.
   def seed_history(users:, size:)
     puts "Seeding history: #{users} users, #{size} prior messages each"
-    conversation_ids = seed_users(users)
+    conversation_ids = LoadSupport.seed_users(users).map(&:last)
     base = 1.day.ago
 
     conversation_ids.each do |cid|
@@ -108,7 +83,7 @@ module LoadTest
         at = base + i.seconds
         { conversation_id: cid, role: i % 2, status: 2, content: "History #{i}", created_at: at, updated_at: at }
       end
-      rows.each_slice(BATCH) { Message.insert_all!(_1) }
+      rows.each_slice(LoadSupport::BATCH) { Message.insert_all!(_1) }
     end
 
     insert_pending(conversation_ids, 1)
