@@ -37,7 +37,7 @@ A practice Rails 8 monolith demonstrating a high-concurrency, real-time AI messa
 
 | Layer | Choice |
 |---|---|
-| Runtime | Ruby 3.4.9 / Rails 8.1.3 |
+| Runtime | Ruby 3.4.4 / Rails 8.1.4 |
 | Database | PostgreSQL |
 | Background jobs | Sidekiq 8 (Redis-backed) |
 | Real-time | ActionCable (Redis adapter) + Turbo Streams |
@@ -51,7 +51,7 @@ A practice Rails 8 monolith demonstrating a high-concurrency, real-time AI messa
 
 ## Prerequisites
 
-- Ruby 3.4.9
+- Ruby 3.4.4 (see `.ruby-version`)
 - PostgreSQL 15+
 - Redis 7+
 
