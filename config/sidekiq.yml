@@ -1,5 +1,6 @@
-# Each thread holds a DB connection while working: keep RAILS_MAX_THREADS >= concurrency.
-:concurrency: <%= ENV.fetch("SIDEKIQ_CONCURRENCY", 5) %>
+# Threads needed ~= message arrival rate x LLM latency (15/s x 1s measured, plus headroom).
+# The DB pool follows this value (config/database.yml).
+:concurrency: <%= ENV.fetch("SIDEKIQ_CONCURRENCY", 20) %>
 
 # No weights = strict order: llm is always drained before default.
 :queues:

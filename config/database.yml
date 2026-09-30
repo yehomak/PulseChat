@@ -17,7 +17,8 @@ default: &default
   encoding: unicode
   # For details on connection pooling, see Rails configuration guide
   # https://guides.rubyonrails.org/configuring.html#database-pooling
-  max_connections: <%= ENV.fetch("RAILS_MAX_THREADS") { 5 } %>
+  # A Sidekiq process sizes its pool to its concurrency; web processes to Puma threads.
+  max_connections: <%= defined?(Sidekiq) && Sidekiq.server? ? Sidekiq.default_configuration[:concurrency] : ENV.fetch("RAILS_MAX_THREADS") { 5 } %>
 
 
 development:
