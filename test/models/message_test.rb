@@ -11,6 +11,11 @@ class MessageTest < ActiveSupport::TestCase
     )
   end
 
+  test "finished? covers every terminal status and nothing else" do
+    finished = Message.statuses.keys.select { Message.new(status: _1).finished? }
+    assert_equal %w[completed failed cancelled blocked], finished
+  end
+
   test "blocked messages are queryable for audit" do
     user = User.create!(email_address: "audit@example.com", password: "password123")
     conversation = user.conversations.create!(title: "Audit")

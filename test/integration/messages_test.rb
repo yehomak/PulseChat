@@ -86,6 +86,26 @@ class MessagesTest < ActionDispatch::IntegrationTest
     $redis.del("cancel:message:#{message.id}")
   end
 
+  test "cancel on blocked message returns 422 and does not write Redis key" do
+    message = @conversation.messages.create!(role: :user_message, content: "hi", status: :blocked)
+
+    patch cancel_conversation_message_path(@conversation, message)
+
+    assert_response :unprocessable_entity
+    assert message.reload.status_blocked?
+    assert $redis.exists("cancel:message:#{message.id}") == 0
+  end
+
+  test "blocked message shows the moderation label and no stop button" do
+    @conversation.messages.create!(role: :user_message, content: "hi", status: :blocked)
+
+    get conversation_path(@conversation)
+
+    assert_response :success
+    assert_select "p", text: "Blocked by moderation"
+    assert_select "form[action$='/cancel']", count: 0
+  end
+
   test "cancel on completed message returns 422 and does not write Redis key" do
     message = @conversation.messages.create!(role: :user_message, content: "hi", status: :completed)
 
