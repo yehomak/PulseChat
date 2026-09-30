@@ -160,6 +160,13 @@ RATE=15 RAMP=30s HOLD=60s k6 run script/load/http.js
 ```
 
 The scripts only touch users whose email starts with `load_` and wipe them at the start of each
-run. `pipeline.rb` refuses to start while jobs are queued, and aborts if the replies are not the
-mock's, so a Sidekiq started without `LLM_MOCK=1` can't silently call the real provider.
-`LLM_MOCK` is ignored in production.
+run.
+
+**Real-LLM guard.** Before seeding or enqueueing anything, both `pipeline.rb` and
+`http_setup.rb` check every Sidekiq process serving the `llm` queue. A worker in mock mode
+advertises the `llm-mock` label (`config/initializers/sidekiq.rb`, visible in
+`Sidekiq::ProcessSet`). If any worker lacks it, the script aborts with zero jobs enqueued, so a
+Sidekiq started with `.env` sourced can't turn a load test into thousands of billed calls. The
+check runs on the worker's actual state, not the script's environment, which is what matters
+because the worker is the process that calls the LLM. As a second line, `pipeline.rb` also
+verifies that the replies are the mock's. `LLM_MOCK` is ignored in production.

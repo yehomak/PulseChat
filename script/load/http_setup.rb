@@ -4,12 +4,14 @@
 #
 #   USERS=100 BASE_URL=http://localhost:3000 bin/rails runner script/load/http_setup.rb
 #
-# Puma must be running. Sessions are created directly rather than via POST /session, because
-# SessionsController rate-limits logins to 10 per 3 minutes per IP and every load user shares one.
+# Puma and a Sidekiq started with LLM_MOCK=1 must be running.
+# Sessions are created directly rather than via POST /session, because SessionsController
+# rate-limits logins to 10 per 3 minutes per IP and every load user shares one.
 # Each user then does a real GET of its conversation: that proves the cookie authenticates and
 # yields the CSRF token plus the Rails session cookie it is bound to.
 
 require "net/http"
+require "sidekiq/api"
 require_relative "support"
 
 $stdout.sync = true
@@ -23,6 +25,7 @@ module HttpSetup
     base_url = URI(ENV.fetch("BASE_URL", "http://localhost:3000"))
     count    = ENV.fetch("USERS", "100").to_i
 
+    LoadSupport.require_mocked_workers!
     LoadSupport.cleanup!
     pairs = LoadSupport.seed_users(count)
     puts "Seeded #{pairs.size} users, authenticating against #{base_url}..."

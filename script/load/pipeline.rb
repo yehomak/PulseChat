@@ -43,12 +43,7 @@ module LoadTest
   def int(key, default) = ENV.fetch(key, default.to_s).to_i
 
   def preflight!
-    processes = Sidekiq::ProcessSet.new.to_a
-    abort "No Sidekiq process running. Start it with LLM_MOCK=1 first." if processes.empty?
-
-    processes.each do |p|
-      puts "Sidekiq pid=#{p["pid"]} concurrency=#{p["concurrency"]} queues=#{p["queues"].join(",")}"
-    end
+    LoadSupport.require_mocked_workers!
 
     backlog = Sidekiq::Queue.new("llm").size + Sidekiq::RetrySet.new.size + Sidekiq::ScheduledSet.new.size
     abort "llm queue / retry / scheduled sets not empty (#{backlog}). Clear them for a clean run." if backlog.positive?
