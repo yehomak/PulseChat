@@ -58,9 +58,13 @@ class ChatReplyService
     $redis.getdel("cancel:message:#{@message.id}").present? || @message.reload.status_cancelled?
   end
 
+  # Blocked turns stay out of later context, or the next clean message would send the flagged
+  # text to the provider. The canned reply goes too: the model shouldn't see a refusal it didn't write.
   def build_history
     conversation.messages
                 .where("id <= ?", @message.id)
+                .where.not(status: :blocked)
+                .where.not(role: :assistant, content: BLOCKED_REPLY)
                 .ordered.reverse_order
                 .limit(HISTORY_LIMIT)
                 .reverse

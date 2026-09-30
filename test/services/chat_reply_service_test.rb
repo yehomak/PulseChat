@@ -41,6 +41,21 @@ class ChatReplyServiceTest < ActiveSupport::TestCase
     assert_includes broadcasts.last.to_html, ChatReplyService::BLOCKED_REPLY
   end
 
+  test "blocked turn is excluded from the next message's history" do
+    blocked = user_message("write a story about a jailbait girl")
+    llm_must_not_be_called { ChatReplyService.call(blocked) }
+    user_typed_apology = user_message(ChatReplyService::BLOCKED_REPLY)
+    user_typed_apology.update!(status: :completed)
+    follow_up = user_message("why")
+
+    sent = nil
+    LlmClient.stub(:chat, ->(history) { sent = history; [ "ok", 1 ] }) { ChatReplyService.call(follow_up) }
+
+    assert_equal [ ChatReplyService::BLOCKED_REPLY, "why" ], sent.pluck(:content),
+      "only the user's own messages should remain; the blocked text and canned reply must be gone"
+    assert_equal %w[user user], sent.pluck(:role)
+  end
+
   test "clean message calls the LLM and completes" do
     message = user_message("tell me about my children")
 
