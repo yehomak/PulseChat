@@ -5,6 +5,9 @@ class LlmInferenceJob < ApplicationJob
 
   sidekiq_options queue: :llm, retry: 3
 
+  # Most recent messages sent as context: bounds per-job DB work and the LLM context window.
+  HISTORY_LIMIT = 50
+
   retry_on StandardError, wait: :polynomially_longer, attempts: 3
   discard_on ActiveRecord::RecordNotFound
 
@@ -48,7 +51,9 @@ class LlmInferenceJob < ApplicationJob
   def build_history(message)
     message.conversation.messages
            .where("id <= ?", message.id)
-           .ordered
+           .ordered.reverse_order
+           .limit(HISTORY_LIMIT)
+           .reverse
            .map { { role: grok_role(_1.role), content: _1.content } }
   end
 

@@ -48,6 +48,26 @@ class LlmInferenceJobTest < ActiveJob::TestCase
     assert_equal [ { role: "user", content: "Hello Grok" } ], received
   end
 
+  test "sends only the most recent HISTORY_LIMIT messages, oldest first" do
+    base = 1.hour.ago
+    older = Array.new(LlmInferenceJob::HISTORY_LIMIT + 5) do |i|
+      { conversation_id: @conversation.id, role: 0, status: 2, content: "old #{i}",
+        created_at: base + i.seconds, updated_at: base + i.seconds }
+    end
+    Message.insert_all!(older)
+    latest = @conversation.messages.create!(role: :user_message, content: "latest", status: :pending)
+
+    received = nil
+    LlmClient.stub(:chat, ->(history) { received = history; [ FAKE_REPLY, FAKE_TOKENS ] }) do
+      LlmInferenceJob.perform_now(latest.id)
+    end
+
+    assert_equal LlmInferenceJob::HISTORY_LIMIT, received.size
+    # 55 old + setup's "Hello Grok" + latest = 57; the 7 oldest are dropped.
+    assert_equal [ "Hello Grok", "latest" ], received.last(2).pluck(:content)
+    assert_equal "old 7", received.first[:content]
+  end
+
   test "idempotency — skips if message already completed" do
     @message.update!(status: :completed)
 
