@@ -1,0 +1,7 @@
+# Each thread holds a DB connection while working: keep RAILS_MAX_THREADS >= concurrency.
+:concurrency: <%= ENV.fetch("SIDEKIQ_CONCURRENCY", 5) %>
+
+# No weights = strict order: llm is always drained before default.
+:queues:
+  - llm
+  - default
