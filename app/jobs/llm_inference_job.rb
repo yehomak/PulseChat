@@ -3,20 +3,37 @@
 class LlmInferenceJob < ApplicationJob
   queue_as :llm
 
-  sidekiq_options queue: :llm, retry: 3
+  # ActiveJob's retry_on is the only retry layer; a second Sidekiq layer would re-run failed jobs.
+  sidekiq_options queue: :llm, retry: 0
 
-  retry_on StandardError, wait: :polynomially_longer, attempts: 3
+  # Worth retrying: the provider or database may succeed on a later attempt.
+  TRANSIENT_ERRORS = [
+    Faraday::ServerError,          # 5xx and timeouts
+    Faraday::ConnectionFailed,
+    Faraday::TooManyRequestsError, # 429
+    ActiveRecord::Deadlocked,
+    ActiveRecord::ConnectionTimeoutError
+  ].freeze
+
+  # Handlers are matched last-declared-first, so the catch-all comes first.
+  discard_on(StandardError) { |job, error| job.fail_message(error) }
+  retry_on(*TRANSIENT_ERRORS, wait: :polynomially_longer, attempts: 3) { |job, error| job.fail_message(error) }
   discard_on ActiveRecord::RecordNotFound
 
   def perform(message_id)
-    message = Message.find(message_id)
-    ChatReplyService.call(message)
-  rescue => e
-    unless message&.status_cancelled?
-      message&.update(status: :failed)
-      broadcast_status(message) if message
-    end
-    raise
+    ChatReplyService.call(Message.find(message_id))
+  end
+
+  # Runs once retries are exhausted or the error is not worth retrying. While retries are
+  # pending the message stays "streaming", so the user sees it is still being worked on.
+  def fail_message(error)
+    Rails.error.report(error, handled: true, context: { job: self.class.name, message_id: arguments.first })
+
+    message = Message.find_by(id: arguments.first)
+    return if message.nil? || message.finished?
+
+    message.update!(status: :failed)
+    broadcast_status(message)
   end
 
   private

@@ -23,7 +23,19 @@ class LlmInferenceJobTest < ActiveJob::TestCase
   end
 
   def with_llm_error(&)
-    LlmClient.stub(:chat, ->(_history) { raise "Grok API timeout" }, &)
+    LlmClient.stub(:chat, ->(_history) { raise "unexpected provider response" }, &)
+  end
+
+  # Raises error_class for the first `failures` calls, then replies. Returns the call count.
+  def with_flaky_llm(error_class, failures:)
+    calls = 0
+    flaky = lambda do |_history|
+      calls += 1
+      raise error_class, "attempt #{calls}" if calls <= failures
+      [ FAKE_REPLY, FAKE_TOKENS ]
+    end
+    LlmClient.stub(:chat, flaky) { yield }
+    calls
   end
 
   test "creates assistant message and marks user message completed" do
@@ -84,10 +96,48 @@ class LlmInferenceJobTest < ActiveJob::TestCase
     end
   end
 
-  test "sets message to failed on API error" do
-    # retry_on catches the re-raise and enqueues a retry; the rescue block
-    # still runs before that, so the status is set to :failed.
-    with_llm_error { LlmInferenceJob.perform_now(@message.id) }
+  test "non-retryable error fails the message immediately without retrying" do
+    assert_no_enqueued_jobs do
+      with_llm_error { LlmInferenceJob.perform_now(@message.id) }
+    end
+    assert @message.reload.status_failed?
+  end
+
+  test "transient error is retried and the reply completes" do
+    calls = with_flaky_llm(Faraday::TimeoutError, failures: 1) do
+      perform_enqueued_jobs { LlmInferenceJob.perform_later(@message.id) }
+    end
+
+    assert_equal 2, calls
+    assert @message.reload.status_completed?
+    assert_equal FAKE_REPLY, @conversation.messages.role_assistant.sole.content
+  end
+
+  test "message stays streaming while a retry is pending" do
+    with_flaky_llm(Faraday::TooManyRequestsError, failures: 1) do
+      LlmInferenceJob.perform_now(@message.id)
+    end
+
+    assert @message.reload.status_streaming?
+    assert_enqueued_jobs 1, only: LlmInferenceJob
+  end
+
+  test "transient errors fail the message once attempts are exhausted" do
+    calls = with_flaky_llm(Faraday::ServerError, failures: 99) do
+      perform_enqueued_jobs { LlmInferenceJob.perform_later(@message.id) }
+    end
+
+    assert_equal 3, calls
+    assert @message.reload.status_failed?
+    assert_equal 0, @conversation.messages.role_assistant.count
+  end
+
+  test "auth error is not retried" do
+    calls = with_flaky_llm(Faraday::UnauthorizedError, failures: 99) do
+      perform_enqueued_jobs { LlmInferenceJob.perform_later(@message.id) }
+    end
+
+    assert_equal 1, calls
     assert @message.reload.status_failed?
   end
 
