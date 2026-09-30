@@ -15,7 +15,7 @@ class LlmInferenceJob < ApplicationJob
     message.update!(status: :streaming)
 
     history  = build_history(message)
-    content, tokens_used = call_grok(history)
+    content, tokens_used = LlmClient.chat(history)
 
     return if $redis.getdel("cancel:message:#{message_id}").present? || message.reload.status_cancelled?
 
@@ -54,26 +54,6 @@ class LlmInferenceJob < ApplicationJob
 
   def grok_role(role)
     role == "assistant" ? "assistant" : "user"
-  end
-
-  def call_grok(history)
-    client = OpenAI::Client.new(
-      access_token: ENV.fetch("XAI_API_KEY"),
-      uri_base:     "https://api.groq.com/openai/v1"
-    )
-
-    response = client.chat(
-      parameters: {
-        model:      "qwen/qwen3.8-27b",
-        messages:   history,
-        max_tokens: 1000
-      }
-    )
-
-    content     = response.dig("choices", 0, "message", "content").to_s
-    tokens_used = response.dig("usage", "completion_tokens").to_i
-
-    [ content, tokens_used ]
   end
 
   def broadcast_status(message)

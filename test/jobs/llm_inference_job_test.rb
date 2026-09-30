@@ -6,33 +6,6 @@ class LlmInferenceJobTest < ActiveJob::TestCase
   FAKE_REPLY  = "Hi there!"
   FAKE_TOKENS = 12
 
-  # Subclass that returns a canned response without hitting the API
-  SuccessJob = Class.new(LlmInferenceJob) do
-    def call_grok(_history)
-      [ FAKE_REPLY, FAKE_TOKENS ]
-    end
-  end
-
-  # Subclass that simulates an API error
-  ErrorJob = Class.new(LlmInferenceJob) do
-    def call_grok(_history)
-      raise "Grok API timeout"
-    end
-  end
-
-  # Subclass with a cancellation Redis key already set when Grok "returns"
-  CancelledMidFlightJob = Class.new(LlmInferenceJob) do
-    def call_grok(_history)
-      $redis.setex("cancel:message:#{@current_message_id}", 600, "1")
-      [ "partial reply", 5 ]
-    end
-
-    def perform(message_id)
-      @current_message_id = message_id
-      super
-    end
-  end
-
   setup do
     @user = User.create!(
       email_address: "job@example.com",
@@ -45,8 +18,16 @@ class LlmInferenceJobTest < ActiveJob::TestCase
     )
   end
 
+  def with_llm_reply(reply = [ FAKE_REPLY, FAKE_TOKENS ], &)
+    LlmClient.stub(:chat, reply, &)
+  end
+
+  def with_llm_error(&)
+    LlmClient.stub(:chat, ->(_history) { raise "Grok API timeout" }, &)
+  end
+
   test "creates assistant message and marks user message completed" do
-    SuccessJob.perform_now(@message.id)
+    with_llm_reply { LlmInferenceJob.perform_now(@message.id) }
 
     assert @message.reload.status_completed?
 
@@ -58,11 +39,20 @@ class LlmInferenceJobTest < ActiveJob::TestCase
     assert assistant.status_completed?
   end
 
+  test "passes conversation history to LlmClient" do
+    received = nil
+    LlmClient.stub(:chat, ->(history) { received = history; [ FAKE_REPLY, FAKE_TOKENS ] }) do
+      LlmInferenceJob.perform_now(@message.id)
+    end
+
+    assert_equal [ { role: "user", content: "Hello Grok" } ], received
+  end
+
   test "idempotency — skips if message already completed" do
     @message.update!(status: :completed)
 
     assert_no_difference -> { @conversation.messages.count } do
-      SuccessJob.perform_now(@message.id)
+      with_llm_reply { LlmInferenceJob.perform_now(@message.id) }
     end
   end
 
@@ -70,14 +60,14 @@ class LlmInferenceJobTest < ActiveJob::TestCase
     @message.update!(status: :failed)
 
     assert_no_difference -> { @conversation.messages.count } do
-      SuccessJob.perform_now(@message.id)
+      with_llm_reply { LlmInferenceJob.perform_now(@message.id) }
     end
   end
 
   test "sets message to failed on API error" do
     # retry_on catches the re-raise and enqueues a retry; the rescue block
     # still runs before that, so the status is set to :failed.
-    ErrorJob.perform_now(@message.id)
+    with_llm_error { LlmInferenceJob.perform_now(@message.id) }
     assert @message.reload.status_failed?
   end
 
@@ -85,13 +75,18 @@ class LlmInferenceJobTest < ActiveJob::TestCase
     @message.update!(status: :cancelled)
 
     assert_no_difference -> { @conversation.messages.count } do
-      SuccessJob.perform_now(@message.id)
+      with_llm_reply { LlmInferenceJob.perform_now(@message.id) }
     end
   end
 
   test "job detects Redis cancel signal and does not create assistant message" do
+    cancel_mid_flight = lambda do |_history|
+      $redis.setex("cancel:message:#{@message.id}", 600, "1")
+      [ "partial reply", 5 ]
+    end
+
     assert_no_difference -> { @conversation.messages.count } do
-      CancelledMidFlightJob.perform_now(@message.id)
+      LlmClient.stub(:chat, cancel_mid_flight) { LlmInferenceJob.perform_now(@message.id) }
     end
 
     assert_equal 0, $redis.exists("cancel:message:#{@message.id}"),
@@ -103,7 +98,7 @@ class LlmInferenceJobTest < ActiveJob::TestCase
   test "API error on cancelled message does not overwrite status with failed" do
     @message.update!(status: :cancelled)
 
-    ErrorJob.perform_now(@message.id)
+    with_llm_error { LlmInferenceJob.perform_now(@message.id) }
 
     assert @message.reload.status_cancelled?,
       "rescue must not overwrite cancelled status with failed"
