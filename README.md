@@ -20,7 +20,7 @@ A practice Rails 8 monolith demonstrating a high-concurrency, real-time AI messa
                                                   │
                                             (Worker Executes)
                                                   │
-                                                  ├──► Call Anthropic API
+                                                  ├──► Call LLM (LlmClient)
                                                   │
                                                   └──► Broadcast Turbo Stream
                                                              │
@@ -38,12 +38,12 @@ A practice Rails 8 monolith demonstrating a high-concurrency, real-time AI messa
 | Layer | Choice |
 |---|---|
 | Runtime | Ruby 3.4.9 / Rails 8.1.3 |
-| Database | PostgreSQL + pgvector |
+| Database | PostgreSQL |
 | Background jobs | Sidekiq 8 (Redis-backed) |
 | Real-time | ActionCable (Redis adapter) + Turbo Streams |
 | Rate limiting | Redis ZSET sliding window |
 | Token ledger | PostgreSQL `SELECT … FOR UPDATE` |
-| AI | xAI Grok (OpenAI-compatible API via `ruby-openai` gem) |
+| AI | Groq, OpenAI-compatible API via `ruby-openai` (`LlmClient`) |
 | Frontend | Hotwire (Turbo + Stimulus) + Tailwind CSS |
 | Assets | Propshaft + importmap |
 
@@ -77,9 +77,22 @@ Environment variables (copy `.env.example` → `.env`):
 
 | Variable | Purpose |
 |---|---|
-| `XAI_API_KEY` | xAI API key for Grok inference |
+| `XAI_API_KEY` | API key for the Groq endpoint |
+| `LLM_MOCK` / `LLM_MOCK_LATENCY_MS` | Replace the LLM with a fixed-latency canned reply (ignored in production) |
+| `SIDEKIQ_CONCURRENCY` | Sidekiq threads, default 20; the DB pool follows it |
 | `REDIS_URL` | Redis connection (default: `redis://localhost:6379/0`) |
 | `DATABASE_URL` | PostgreSQL connection string |
+
+---
+
+## Load testing
+
+Under a mocked 1 s LLM, raising Sidekiq concurrency from 5 to 20 cut a 1,000-job drain from
+215 s to 57 s and cleared a 713-job backlog at 15 msg/s. Capping LLM history at 50 messages
+removed a 17% throughput penalty on 10,000-message conversations. The request path held p95
+23 ms throughout.
+
+Method, full results, what turned out wrong, and how to reproduce: [docs/load_test.md](docs/load_test.md).
 
 ---
 
@@ -98,5 +111,7 @@ bin/rails test
 | Rate limiter | `app/services/rate_limiter.rb` |
 | Token ledger | `app/services/token_ledger.rb` |
 | LLM inference job | `app/jobs/llm_inference_job.rb` |
+| LLM client (+ mock) | `app/services/llm_client.rb` |
+| Load test scripts | `script/load/` |
 | Conversations channel | `app/channels/conversations_channel.rb` |
 | Messages controller | `app/controllers/messages_controller.rb` |
