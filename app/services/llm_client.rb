@@ -7,6 +7,7 @@ class LlmClient
 
   MOCK_REPLY  = "Mocked reply."
   MOCK_TOKENS = 10
+  MOCK_LABEL  = "llm-mock"
 
   class << self
     def chat(history)

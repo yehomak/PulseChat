@@ -32,7 +32,7 @@ class MessagesController < ApplicationController
   end
 
   def cancel
-    return head :unprocessable_entity if @message.status_completed? || @message.status_failed? || @message.status_cancelled?
+    return head :unprocessable_entity if @message.finished?
 
     @message.status_cancelled!
     $redis.setex("cancel:message:#{@message.id}", 600, "1")

@@ -18,6 +18,8 @@
         <p class="text-right text-[11px] text-gray-400 mt-1 italic">Generation stopped</p>
       <% elsif message.status_failed? %>
         <p class="text-right text-[11px] text-red-400 mt-1 italic">Generation failed</p>
+      <% elsif message.status_blocked? %>
+        <p class="text-right text-[11px] text-red-400 mt-1 italic">Blocked by moderation</p>
       <% end %>
     </div>
   </div>

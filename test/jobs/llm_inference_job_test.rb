@@ -50,7 +50,7 @@ class LlmInferenceJobTest < ActiveJob::TestCase
 
   test "sends only the most recent HISTORY_LIMIT messages, oldest first" do
     base = 1.hour.ago
-    older = Array.new(LlmInferenceJob::HISTORY_LIMIT + 5) do |i|
+    older = Array.new(ChatReplyService::HISTORY_LIMIT + 5) do |i|
       { conversation_id: @conversation.id, role: 0, status: 2, content: "old #{i}",
         created_at: base + i.seconds, updated_at: base + i.seconds }
     end
@@ -62,7 +62,7 @@ class LlmInferenceJobTest < ActiveJob::TestCase
       LlmInferenceJob.perform_now(latest.id)
     end
 
-    assert_equal LlmInferenceJob::HISTORY_LIMIT, received.size
+    assert_equal ChatReplyService::HISTORY_LIMIT, received.size
     # 55 old + setup's "Hello Grok" + latest = 57; the 7 oldest are dropped.
     assert_equal [ "Hello Grok", "latest" ], received.last(2).pluck(:content)
     assert_equal "old 7", received.first[:content]
@@ -113,6 +113,19 @@ class LlmInferenceJobTest < ActiveJob::TestCase
       "GETDEL should have consumed the cancel key"
   ensure
     $redis.del("cancel:message:#{@message.id}")
+  end
+
+  test "cancel persisted during the LLM call does not create assistant message" do
+    cancel_in_db = lambda do |_history|
+      Message.find(@message.id).update!(status: :cancelled)
+      [ "partial reply", 5 ]
+    end
+
+    assert_no_difference -> { @conversation.messages.count } do
+      LlmClient.stub(:chat, cancel_in_db) { LlmInferenceJob.perform_now(@message.id) }
+    end
+
+    assert @message.reload.status_cancelled?
   end
 
   test "API error on cancelled message does not overwrite status with failed" do

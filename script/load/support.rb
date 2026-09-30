@@ -7,6 +7,25 @@ module LoadSupport
 
   module_function
 
+  # Runs before anything is seeded or enqueued: a worker without LLM_MOCK=1 would send every
+  # load message to the real provider on the real key. Workers advertise mock mode as a
+  # Sidekiq label (config/initializers/sidekiq.rb), so this check costs zero LLM calls.
+  def require_mocked_workers!
+    workers = Sidekiq::ProcessSet.new.select { _1["queues"].include?("llm") }
+    abort "No Sidekiq process serves the llm queue. Start one with LLM_MOCK=1." if workers.empty?
+
+    workers.each do |p|
+      mocked = p["labels"].include?(LlmClient::MOCK_LABEL)
+      puts "Sidekiq pid=#{p["pid"]} concurrency=#{p["concurrency"]} llm=#{mocked ? "mock" : "LIVE"}"
+    end
+
+    live = workers.reject { _1["labels"].include?(LlmClient::MOCK_LABEL) }
+    return if live.empty?
+
+    abort "Refusing to run: Sidekiq pid #{live.map { _1["pid"] }.join(", ")} would call the real LLM. " \
+          "Restart it with LLM_MOCK=1 (and without sourcing .env)."
+  end
+
   def cleanup!
     user_ids = User.where("email_address LIKE ?", "#{EMAIL_PREFIX}%").ids
     return if user_ids.empty?
