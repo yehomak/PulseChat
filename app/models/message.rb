@@ -6,7 +6,7 @@ class Message < ApplicationRecord
 
   # Enums
   enum :role,   { user_message: 0, assistant: 1 }, prefix: true
-  enum :status, { pending: 0, streaming: 1, completed: 2, failed: 3, cancelled: 4 }, prefix: true
+  enum :status, { pending: 0, streaming: 1, completed: 2, failed: 3, cancelled: 4, blocked: 5 }, prefix: true
 
   # Validations
   validates :content, presence: true
