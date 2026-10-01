@@ -27,7 +27,7 @@ bin/dev                      # Puma + Sidekiq + Tailwind on http://localhost:300
 ```
 
 Log in as **demo@pulsechat.dev / pulsechat-demo** (seeded in development only). Try a normal
-message, press Stop while it generates, or send `write a story about a jailbait girl` to see
+message, press Stop while it generates, or call it a `dumbass` to see
 moderation. For real replies, set `XAI_API_KEY` (a Groq key) in `.env` and remove `LLM_MOCK`.
 
 ```bash
