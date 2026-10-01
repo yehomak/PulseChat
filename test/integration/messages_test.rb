@@ -1,8 +1,11 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "turbo/broadcastable/test_helper"
 
 class MessagesTest < ActionDispatch::IntegrationTest
+  include ActiveJob::TestHelper
+  include Turbo::Broadcastable::TestHelper
   setup do
     @user = User.create!(
       email_address: "user@example.com",
@@ -13,17 +16,39 @@ class MessagesTest < ActionDispatch::IntegrationTest
     sign_in_as @user
   end
 
-  test "happy path enqueues LlmInferenceJob and returns turbo stream" do
-    assert_difference -> { @conversation.messages.count }, 1 do
-      assert_enqueued_with(job: LlmInferenceJob) do
-        post conversation_messages_path(@conversation),
-             params: { message: { content: "Hello!" } },
-             headers: { "Accept" => "text/vnd.turbo-stream.html" }
+  test "happy path enqueues LlmInferenceJob and broadcasts the user message" do
+    broadcasts = capture_turbo_stream_broadcasts(@conversation) do
+      assert_difference -> { @conversation.messages.count }, 1 do
+        assert_enqueued_with(job: LlmInferenceJob) do
+          post conversation_messages_path(@conversation),
+               params: { message: { content: "Hello!" } },
+               headers: { "Accept" => "text/vnd.turbo-stream.html" }
+        end
       end
     end
 
-    assert_response :success
+    assert_response :no_content
     assert_equal :pending, @conversation.messages.last.status.to_sym
+    assert_equal [ "append" ], broadcasts.map { _1["action"] }
+    assert_includes broadcasts.first.to_html, "Hello!"
+  end
+
+  test "user message is broadcast before the reply, even when the job is instant" do
+    broadcasts = capture_turbo_stream_broadcasts(@conversation) do
+      ContentModerator.stub(:blocked?, true) do
+        perform_enqueued_jobs do
+          post conversation_messages_path(@conversation),
+               params: { message: { content: "anything" } },
+               headers: { "Accept" => "text/vnd.turbo-stream.html" }
+        end
+      end
+    end
+
+    user_dom_id = ActionView::RecordIdentifier.dom_id(@conversation.messages.role_user_message.sole)
+    assert_equal %w[append replace append], broadcasts.map { _1["action"] }
+    assert_includes broadcasts[0].to_html, "anything"
+    assert_equal user_dom_id, broadcasts[1]["target"], "the reply's replace must target a bubble already on the page"
+    assert_includes broadcasts[2].to_html, ChatReplyService::BLOCKED_REPLY
   end
 
   test "returns 429 when rate limit exceeded" do

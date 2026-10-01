@@ -23,10 +23,11 @@ class MessagesController < ApplicationController
       status:  :pending
     )
 
+    broadcast_user_message
     LlmInferenceJob.perform_later(@message.id)
 
     respond_to do |format|
-      format.turbo_stream
+      format.turbo_stream { head :no_content }
       format.html { redirect_to @conversation }
     end
   end
@@ -63,6 +64,20 @@ class MessagesController < ApplicationController
 
   def message_params
     params.expect(message: [ :content ])
+  end
+
+  # Sent over the same stream as the job's broadcasts, and before the job is enqueued, so the
+  # bubble always arrives first. Rendering it in the HTTP response raced fast jobs: a blocked
+  # reply could arrive before the message it answers.
+  def broadcast_user_message
+    Turbo::StreamsChannel.broadcast_append_to(
+      @conversation,
+      target:  "messages",
+      partial: "messages/message",
+      locals:  { message: @message, conversation: @conversation }
+    )
+  rescue => e
+    Rails.logger.error("user message broadcast error: #{e.class} #{e.message}")
   end
 
   def estimate_cost(content)
