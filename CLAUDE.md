@@ -51,13 +51,11 @@
 
 `config/sidekiq.yml`: concurrency 20 (override with `SIDEKIQ_CONCURRENCY`), queues `llm` then `default`. In Sidekiq processes the DB pool follows concurrency (`config/database.yml`). Start with `bundle exec sidekiq`.
 
-## ActionCable Channels
+## Real-time delivery
 
-| Channel | Streams | Auth check |
-|---|---|---|
-| `ConversationsChannel` | `stream_for conversation` (scoped to `current_user.conversations`) | `reject` on `RecordNotFound` |
+No custom channels. `conversations/show` subscribes with `turbo_stream_from @conversation`, which uses Turbo's `Turbo::StreamsChannel` with a **signed** stream name: only a page rendered for a user who can see the conversation gets a valid signature. `ApplicationCable::Connection` authenticates the WebSocket (`identified_by :current_user`, rejects anonymous connections).
 
-Broadcasts are issued from `ChatReplyService` (reply, blocked) and `LlmInferenceJob` (failed status) on the `conversation` record.
+Broadcasts are issued from `ChatReplyService` (reply, blocked) and `LlmInferenceJob` (failed status) on the `conversation` record. Add a custom channel only for client→server messages (for example typing indicators).
 
 ## Services
 
