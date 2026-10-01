@@ -55,7 +55,9 @@
 
 No custom channels. `conversations/show` subscribes with `turbo_stream_from @conversation`, which uses Turbo's `Turbo::StreamsChannel` with a **signed** stream name: only a page rendered for a user who can see the conversation gets a valid signature. `ApplicationCable::Connection` authenticates the WebSocket (`identified_by :current_user`, rejects anonymous connections).
 
-Broadcasts are issued from `ChatReplyService` (reply, blocked) and `LlmInferenceJob` (failed status) on the `conversation` record. Add a custom channel only for client→server messages (for example typing indicators).
+Broadcasts are issued on the `conversation` record from `MessagesController#create` (the user's message), `ChatReplyService` (reply, blocked) and `LlmInferenceJob` (failed status). `create` returns `204`; it does not render the message.
+
+**Ordering:** the user's message is broadcast on the same stream, *before* the job is enqueued, so it always arrives ahead of the job's `replace`/`append`. Don't move it back into the HTTP response: response and stream are separate channels, and a fast job (a blocked message skips the LLM) would win the race. Add a custom channel only for client→server messages (for example typing indicators).
 
 ## Services
 
