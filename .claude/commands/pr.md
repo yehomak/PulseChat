@@ -1,23 +1,26 @@
 ---
 allowed-tools: Bash(git *), Bash(bin/rubocop:*), Bash(bundle exec brakeman:*), Bash(bundle exec bundler-audit:*), Bash(bin/rails test:*), Bash(gh *)
 description: Full Rails gate (rubocop + brakeman + test), then structured PR
+disable-model-invocation: true
 ---
 
 ## Pre-flight gate
 
-```
-!`bin/rubocop --no-pager -q 2>&1 | tail -5`
-!`bundle exec brakeman --no-pager -q 2>&1 | tail -10`
-!`bin/rails test 2>&1 | tail -20`
+Run with Bash tool:
+```bash
+bin/rubocop --no-pager -q 2>&1 | tail -5
+bundle exec brakeman --no-pager -q 2>&1 | tail -10
+bin/rails test 2>&1 | tail -20
 ```
 
 Stop and fix any failures before opening the PR.
 
 ## Context
 
-```
-!`git log main..HEAD --oneline`
-!`git diff main...HEAD --stat`
+Run with Bash tool:
+```bash
+git log main..HEAD --oneline
+git diff main...HEAD --stat
 ```
 
 ## PR description

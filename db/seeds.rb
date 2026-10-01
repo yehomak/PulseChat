@@ -1,9 +1,11 @@
-# This file should ensure the existence of records required to run the application in every environment (production,
-# development, test). The code here should be idempotent so that it can be executed at any point in every environment.
-# The data can then be loaded with the bin/rails db:seed command (or created alongside the database with db:setup).
-#
-# Example:
-#
-#   ["Action", "Comedy", "Drama", "Horror"].each do |genre_name|
-#     MovieGenre.find_or_create_by!(name: genre_name)
-#   end
+# frozen_string_literal: true
+
+# Demo account for local evaluation. Development only: a known password must never exist in production.
+if Rails.env.development?
+  demo = User.find_or_create_by!(email_address: "demo@pulsechat.dev") do |user|
+    user.password = "pulsechat-demo"
+  end
+  demo.conversations.find_or_create_by!(title: "Welcome")
+
+  puts "Demo login: demo@pulsechat.dev / pulsechat-demo"
+end

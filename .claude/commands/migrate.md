@@ -6,17 +6,19 @@ description: Generate a safe, reversible Rails migration with zero-downtime patt
 
 ## Read current state
 
-```
-!`cat db/schema.rb | grep -A5 "create_table"`
-!`ls -t db/migrate | head -5`
+Run with Bash tool:
+```bash
+grep -A5 "create_table" db/schema.rb
+ls -t db/migrate | head -5
 ```
 
 Read the latest migration file for context.
 
 ## Generate migration
 
-```
-!`bin/rails generate migration $ARGUMENTS`
+Run with Bash tool:
+```bash
+bin/rails generate migration $ARGUMENTS
 ```
 
 Open the generated file and fill it in following these rules:
@@ -41,9 +43,10 @@ add_reference :messages, :user, foreign_key: true, index: true
 
 ## Apply
 
-```
-!`bin/rails db:migrate`
-!`bin/rails db:schema:dump`
+Run with Bash tool:
+```bash
+bin/rails db:migrate
+bin/rails db:schema:dump
 ```
 
 ## Safety check

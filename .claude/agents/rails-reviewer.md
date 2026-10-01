@@ -33,6 +33,7 @@ Review Rails code against these rules. Output format: **Blocking** / **Important
 - [ ] `discard_on ActiveRecord::RecordNotFound` to handle deleted records
 - [ ] `queue_as` declared explicitly — never `:default` for ML/media jobs
 - [ ] Not enqueuing inside a transaction (use `*_commit` instead)
+- [ ] Transient errors (429, timeout, connection failure) rescued separately — must NOT call `update(status: :failed)` or `raise` will re-raise into retry with wrong state; catch them with their own `rescue` clause that just `raise`s
 
 **Migration safety:**
 - [ ] Large-table index uses `algorithm: :concurrently` + `disable_ddl_transaction!`
@@ -45,7 +46,7 @@ Review Rails code against these rules. Output format: **Blocking** / **Important
 - [ ] `params.expect` not `params.require.permit` (Rails 8+)
 - [ ] Enums have `prefix: true` to avoid method collisions
 - [ ] No Devise — uses Rails 8 built-in auth (`has_secure_password`, Session model)
-- [ ] No `app/services/` — business logic on models/concerns
+- [ ] `app/services/` for complex domain logic only — not for thin wrappers that belong on the model
 
 **Turbo/Hotwire:**
 - [ ] Turbo Frame targets match `dom_id` in the view

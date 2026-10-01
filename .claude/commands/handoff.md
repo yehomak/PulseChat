@@ -1,5 +1,4 @@
 ---
-disable-model-invocation: true
 argument-hint: "what the next session will focus on"
 description: Compact this conversation into a handoff doc for the next session
 ---
