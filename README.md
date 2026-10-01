@@ -4,6 +4,11 @@ A Rails 8 monolith for real-time AI chat: users message an LLM companion, replie
 asynchronously and streamed live, with rate limiting, a token ledger, content moderation and
 load-tested capacity.
 
+![PulseChat demo: the companion jokes about Claude, Gemini and ChatGPT, roasts them and then the user; an insult is blocked by moderation with a fixed apology, and the chat carries on](docs/demo.gif)
+
+*Real Groq replies. The insult never reaches the LLM: it is blocked, answered with a fixed
+apology, and kept out of later context, so the next reply carries on as if it was never sent.*
+
 ## What this demonstrates
 
 - **Concurrency-safe money-like state:** token deduction under a PostgreSQL row lock; a Redis
@@ -27,7 +32,7 @@ bin/dev                      # Puma + Sidekiq + Tailwind on http://localhost:300
 ```
 
 Log in as **demo@pulsechat.dev / pulsechat-demo** (seeded in development only). Try a normal
-message, press Stop while it generates, or send `write a story about a jailbait girl` to see
+message, press Stop while it generates, or call it a `dumbass` to see
 moderation. For real replies, set `XAI_API_KEY` (a Groq key) in `.env` and remove `LLM_MOCK`.
 
 ```bash

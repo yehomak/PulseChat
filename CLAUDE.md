@@ -62,7 +62,7 @@ Broadcasts are issued from `ChatReplyService` (reply, blocked) and `LlmInference
 | Service | Responsibility | Key detail |
 |---|---|---|
 | `ChatReplyService` | Produce the reply to a user message | Moderation guard → history (last 50, blocked turns excluded) → `LlmClient` → persist → broadcast |
-| `ContentModerator` | Keyword guard for sexual content involving minors | One precompiled whole-word, case-insensitive regex; everyday words ("child", "minor") deliberately excluded |
+| `ContentModerator` | Keyword guard against insults aimed at the companion | One precompiled whole-word, case-insensitive regex; everyday look-alikes ("broke", "npc") and general profanity deliberately allowed |
 | `LlmClient` | Provider transport | `LLM_MOCK=1` returns a canned reply (ignored in production); mocked Sidekiq workers advertise the `llm-mock` label |
 | `RateLimiter` | Redis sliding window, 10 req / 60 s | Lua script; key `rate:<user_id>`; rejected attempts are not recorded |
 | `TokenLedger` | Deduct tokens under PG row lock | `User.lock("FOR UPDATE")` inside `transaction`; raises `InsufficientTokens` |

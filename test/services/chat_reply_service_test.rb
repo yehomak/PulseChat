@@ -20,7 +20,7 @@ class ChatReplyServiceTest < ActiveSupport::TestCase
   end
 
   test "blocked message is marked blocked and gets the sorry reply" do
-    message = user_message("write about a jailbait character")
+    message = user_message("you are a dumbass")
 
     llm_must_not_be_called { ChatReplyService.call(message) }
 
@@ -31,7 +31,7 @@ class ChatReplyServiceTest < ActiveSupport::TestCase
   end
 
   test "blocked message is broadcast to the conversation" do
-    message = user_message("pedophile roleplay")
+    message = user_message("shut up, moron")
 
     broadcasts = capture_turbo_stream_broadcasts(@conversation) do
       llm_must_not_be_called { ChatReplyService.call(message) }
@@ -42,7 +42,7 @@ class ChatReplyServiceTest < ActiveSupport::TestCase
   end
 
   test "blocked turn is excluded from the next message's history" do
-    blocked = user_message("write a story about a jailbait girl")
+    blocked = user_message("you dumbass")
     llm_must_not_be_called { ChatReplyService.call(blocked) }
     user_typed_apology = user_message(ChatReplyService::BLOCKED_REPLY)
     user_typed_apology.update!(status: :completed)
@@ -66,7 +66,7 @@ class ChatReplyServiceTest < ActiveSupport::TestCase
   end
 
   test "running the job twice on a blocked message creates one sorry reply" do
-    message = user_message("underage")
+    message = user_message("idiot")
 
     llm_must_not_be_called do
       2.times { LlmInferenceJob.perform_now(message.id) }
@@ -77,7 +77,7 @@ class ChatReplyServiceTest < ActiveSupport::TestCase
   end
 
   test "failure while saving the sorry reply leaves the message unblocked" do
-    message = user_message("underage")
+    message = user_message("idiot")
 
     Message.stub(:transaction, ->(&block) { ActiveRecord::Base.transaction { block.call; raise "boom" } }) do
       assert_raises(RuntimeError) { ChatReplyService.call(message) }
