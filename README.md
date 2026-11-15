@@ -1,139 +1,153 @@
 # PulseChat
 
-A Rails 8 monolith for real-time AI chat: users message an LLM companion, replies are generated
-asynchronously and streamed live, with rate limiting, a token ledger, content moderation and
-load-tested capacity.
+**Real-time AI chat on a single Rails 8 monolith.** Messages are rate-limited in Redis, paid for
+under a PostgreSQL row lock, moderated before they reach the model, answered asynchronously by
+Sidekiq and streamed to the browser over Turbo Streams.
 
 ![PulseChat demo: the companion jokes about Claude, Gemini and ChatGPT, roasts them and then the user; an insult is blocked by moderation with a fixed apology, and the chat carries on](docs/demo.gif)
 
 *Real Groq replies. The insult never reaches the LLM: it is blocked, answered with a fixed
-apology, and kept out of later context, so the next reply carries on as if it was never sent.*
+apology, and kept out of later context.*
 
-## What this demonstrates
+## Architecture
 
-- **Concurrency-safe money-like state:** token deduction under a PostgreSQL row lock; a Redis
-  sliding-window rate limiter in one atomic Lua script ([#10](https://github.com/yehomak/PulseChat/pull/10))
-- **Async LLM pipeline:** a thin Sidekiq job over `ChatReplyService`, retrying only transient
-  provider errors ([#11](https://github.com/yehomak/PulseChat/pull/11)), with cancel mid-generation
-- **Moderation:** blocked before the LLM call and kept out of later context
-  ([#9](https://github.com/yehomak/PulseChat/pull/9))
-- **Measured capacity:** a k6 and Sidekiq load harness found the real bottleneck; 1,000-job drain
-  215 s → 57 s ([#8](https://github.com/yehomak/PulseChat/pull/8), [report](docs/load_test.md))
-- **Real-time UI:** Turbo Streams over ActionCable, no custom JavaScript for message delivery
+```mermaid
+flowchart LR
+    B[Browser] -->|POST /conversations/:id/messages| C[MessagesController]
+    C -->|Lua: evict, count, record| R[(Redis<br/>rate:&lt;user_id&gt;)]
+    C -->|SELECT … FOR UPDATE| P[(PostgreSQL)]
+    C -->|append user message| S[[Turbo::StreamsChannel]]
+    C -->|perform_later id| Q[Sidekiq :llm]
+    Q --> J[LlmInferenceJob]
+    J --> X[ChatReplyService]
+    X -->|blocked?| M[ContentModerator]
+    X -->|last 50, blocked excluded| P
+    X --> L[LlmClient → Groq]
+    X -->|replace + append, after commit| S
+    S -->|ActionCable WebSocket| B
+```
 
-## Quick start
+**Request path** (`MessagesController#create`, returns `204`):
 
-Needs Ruby 3.4.4, PostgreSQL 15+ and Redis 7+. No API key required.
+1. `RateLimiter`: 10 requests / 60 s sliding window → `429`
+2. `TokenLedger`: deduct the estimated cost under a row lock → `402`
+3. Persist the user message as `pending`, broadcast it on the conversation stream
+4. Enqueue `LlmInferenceJob` with the message id
+
+**Job path** (`ChatReplyService`):
+
+1. Return early if the message is already `finished?` (retry or cancel)
+2. Moderation: blocked → mark `blocked` + canned reply in one transaction, broadcast, stop
+3. Build history (last 50 messages, blocked turns and their canned replies excluded)
+4. Call the LLM; drop the reply if the user cancelled meanwhile (Redis signal or DB status)
+5. Persist the reply, mark the message `completed`, broadcast
+
+The user message is broadcast on the *same* stream as the job's updates and *before* the job is
+enqueued, so it always arrives first. Rendering it in the HTTP response raced fast jobs: a blocked
+reply could land before the message it answers.
+
+## Engineering highlights
+
+### Concurrency
+- **Atomic rate limiting.** Evict, count and record run in one Lua script
+  ([`RateLimiter::SCRIPT`](app/services/rate_limiter.rb)), not `MULTI`: the check must precede the
+  write, so rejected attempts are never recorded and can't keep a retrying client locked out.
+- **Token deduction under a row lock.** `User.lock("FOR UPDATE")` inside a transaction
+  ([`TokenLedger`](app/services/token_ledger.rb)); concurrent sends can't overdraw the balance.
+
+### Queue reliability
+- **One retry layer.** ActiveJob `retry_on` (3 attempts, polynomial backoff) with
+  `sidekiq_options retry: 0`, so failed jobs are never re-run by a second layer.
+- **Transient vs terminal.** Only 5xx, timeouts, connection failures, 429, deadlocks and pool
+  timeouts retry. Everything else is discarded and the message marked `failed`, once, after
+  retries are exhausted. While retries are pending the message stays `streaming`.
+- **Thin job, logic in a service.** The job loads the record and owns retries;
+  `ChatReplyService` owns the operation and is reusable and testable on its own.
+- **Sized by measurement.** Concurrency 20 from Little's law (arrival rate × LLM latency); the DB
+  pool follows Sidekiq concurrency. A k6 + Sidekiq harness cut a 1,000-job drain from 215 s to
+  57 s ([report](docs/load_test.md)).
+
+### Idempotency
+- `Message#finished?` is the single list of terminal states (`completed`, `failed`, `cancelled`,
+  `blocked`); the service returns early on it, so retries and cancels never produce a second reply.
+- Multi-row writes (blocked status + canned reply) share one transaction, so a retry can't leave a
+  blocked message without its reply or add a duplicate.
+- Broadcast failures are logged, not raised: the reply is already persisted and must not trigger
+  a retry.
+
+### Moderation that doesn't leak
+- The guard lives in `ChatReplyService`, before history is loaded and before the LLM call. A
+  controller check would be skipped by other reply paths; `LlmClient` is transport only.
+- Blocked turns are excluded from later history. Otherwise the next clean message would still send
+  the flagged text to the provider.
+
+### Real-time delivery
+- No custom channels. `turbo_stream_from @conversation` uses a **signed** stream name, and
+  `ApplicationCable::Connection` rejects anonymous sockets.
+
+### Caught by tests and measurement
+- `retry_on` was dead code: the job marked messages failed (terminal) before retrying.
+- The rate limiter counted rejected requests.
+- Moderation leaked through history on the next turn.
+- Expected DB pool exhaustion above 5 threads never happened: a job holds no connection during the
+  LLM call. The load test disproved it before it was "fixed".
+
+Every guard ships with a test that fails when the guard is removed.
+
+## Local development
+
+Requires Ruby 3.4.4, PostgreSQL 15+ and Redis 7+. No API key needed: replies are mocked by default.
 
 ```bash
-cp .env.example .env         # mocked LLM replies by default
-bin/setup --skip-server      # install gems, create + seed the database
-bin/dev                      # Puma + Sidekiq + Tailwind on http://localhost:3000
+brew services start postgresql@16 redis   # or any local PostgreSQL + Redis
+cp .env.example .env                      # mocked LLM replies by default
+bin/setup --skip-server                   # gems, create + migrate + seed the database
+bin/dev                                   # Puma + Sidekiq + Tailwind on http://localhost:3000
 ```
 
-Log in as **demo@pulsechat.dev / pulsechat-demo** (seeded in development only). Try a normal
-message, press Stop while it generates, or call it a `dumbass` to see
-moderation. For real replies, set `XAI_API_KEY` (a Groq key) in `.env` and remove `LLM_MOCK`.
+Log in as **demo@pulsechat.dev / pulsechat-demo** (seeded in development only). Send a message,
+press Stop mid-generation, or call it a `dumbass` to see moderation.
 
 ```bash
-bin/rails test               # 68 tests; Redis isolated per worker, never your dev DB
+bin/rails test        # 68 tests; Redis DB 2 per worker, never the dev DB
 ```
 
-## Pipeline
+The `Dockerfile` is the production image (Kamal, `config/deploy.yml`); there is no Docker Compose
+setup for development.
 
+## Environment variables
+
+```bash
+# .env
+LLM_MOCK=1                      # canned replies; ignored in production
+LLM_MOCK_LATENCY_MS=1000        # simulated LLM latency for the mock
+XAI_API_KEY=                    # Groq API key; set it and remove LLM_MOCK for real replies
+SIDEKIQ_CONCURRENCY=20          # Sidekiq threads; the DB pool follows it
+REDIS_URL=redis://localhost:6379/0
+RAILS_MAX_THREADS=5             # Puma threads and web DB pool
 ```
-Browser ── POST /conversations/:id/messages
-   │
-   ▼
-MessagesController
-   ├── RateLimiter ─────────── Redis Lua: evict · count · record only if allowed → 429
-   ├── TokenLedger ─────────── PostgreSQL SELECT … FOR UPDATE → 402
-   ├── Message (pending)
-   └── LlmInferenceJob ─────── Sidekiq, queue :llm, concurrency 20
-          │                     retry_on transient (5xx, timeout, 429) · discard the rest
-          ▼
-      ChatReplyService
-          ├── finished? ─────── idempotent on retry / cancel
-          ├── ContentModerator ─ blocked → mark blocked + apology, in one transaction
-          ├── history ───────── last 50 messages, blocked turns excluded
-          ├── LlmClient ─────── Groq (or mock)
-          ├── cancelled? ────── Redis signal or DB status → drop the reply
-          └── persist → broadcast after commit → Turbo Stream → live UI
-```
-
-## Design decisions
-
-| Decision | Why |
-|---|---|
-| Moderation lives in `ChatReplyService`, before history and the LLM call | The service owns producing a reply. A controller check would be skipped by any other reply path; `LlmClient` is transport only |
-| Blocked turns are excluded from later history | Otherwise the next clean message sends the blocked text to the provider ("continue the story above") |
-| Thin job, logic in a service | Retry and queue policy stay in the job, the reply operation in one reusable, testable place |
-| Retry only transient errors; fail the message after retries | A bad key shouldn't retry, and a timeout shouldn't kill the reply. ActiveJob is the single retry layer |
-| Rate limiter as a Lua script, not `MULTI` | The check has to happen before the write, so rejected attempts don't fill the window |
-| `blocked` as a status value, not a boolean | A message ends in exactly one state; `Message#finished?` is the one list of terminal states |
-| Sidekiq concurrency 20, sized by measurement | Throughput ≈ threads ÷ LLM latency; needed ≈ arrival rate × latency (Little's law) |
-
-## What I got wrong or caught
-
-- **DB pool exhaustion never happened.** I expected it above 5 threads; 25 threads on a 5-connection
-  pool ran clean, because Rails returns connections between queries and a job holds none during the
-  LLM call. The load test disproved the guess before I "fixed" it ([report](docs/load_test.md)).
-- **Moderation leaked through history.** The first version blocked the turn, but the next message
-  still sent the blocked text to the provider. Caught in manual testing; fixed and pinned by a test.
-- **`retry_on` was dead code.** The job marked messages failed before retrying, and failed is
-  terminal, so no retry ever ran. Found while reviewing the moderation work.
-- **The rate limiter counted rejected requests**, keeping a retrying client blocked indefinitely.
-
-Each fix ships with a test that fails when the fix is removed.
-
-## How it was built
-
-Built with [Claude Code](https://claude.com/claude-code), using the project setup in
-[`.claude/`](.claude) and [`CLAUDE.md`](CLAUDE.md). The AI wrote most of the code; design
-decisions, and the call on what to measure and what to fix, were mine.
-
-- **`/grilling` before code:** every feature starts as a design tree of questions (placement,
-  atomicity, failure modes) settled before implementation
-- **One layer per commit:** migration → model → service → job → view, each reviewed by a
-  `rails-reviewer` agent before committing
-- **Guards are mutation-checked:** remove the transaction, filter or check, and confirm a test fails
-- **Hooks enforce the basics:** RuboCop when the agent stops, secret scanning on every file write,
-  and a guard against destructive database commands
-- **The load test refuses to run against a worker that would call the real LLM,** so no load run can
-  turn into billed calls
 
 ## Stack
 
 | Layer | Choice |
 |---|---|
-| Runtime | Ruby 3.4.4 / Rails 8.1.4 |
+| Runtime | Ruby 3.4.4, Rails 8.1.4 |
 | Database | PostgreSQL |
-| Background jobs | Sidekiq 8 (`config/sidekiq.yml`, concurrency 20) |
-| Real-time | ActionCable (Redis adapter) + Turbo Streams |
-| Rate limiting | Redis sliding window (Lua) |
-| Token ledger | PostgreSQL `SELECT … FOR UPDATE` |
-| Moderation | Keyword guard (`ContentModerator`) |
-| AI | Groq, OpenAI-compatible API via `ruby-openai` (`LlmClient`, mockable) |
-| Frontend | Hotwire (Turbo + Stimulus) + Tailwind CSS, Propshaft + importmap |
+| Jobs | Sidekiq 8, queues `llm` then `default` |
+| Real-time | ActionCable (Redis in dev, SolidCable in prod) + Turbo Streams |
+| LLM | Groq via the OpenAI-compatible API (`ruby-openai`), wrapped in `LlmClient` |
+| Frontend | Hotwire (Turbo + Stimulus), Tailwind, Propshaft + importmap |
 
-## Environment
-
-| Variable | Purpose |
-|---|---|
-| `LLM_MOCK` / `LLM_MOCK_LATENCY_MS` | Canned replies with fixed latency (ignored in production) |
-| `XAI_API_KEY` | Groq API key, for real replies |
-| `SIDEKIQ_CONCURRENCY` | Sidekiq threads, default 20; the DB pool follows it |
-| `REDIS_URL` / `DATABASE_URL` | Only if not on localhost defaults |
-
-## Key source locations
+## Source map
 
 | Concern | Path |
 |---|---|
+| Request entry, rate limit, charge | `app/controllers/messages_controller.rb` |
 | Reply operation + moderation guard | `app/services/chat_reply_service.rb` |
-| Moderation terms | `app/services/content_moderator.rb` |
-| LLM client (+ mock) | `app/services/llm_client.rb` |
-| Rate limiter | `app/services/rate_limiter.rb` |
-| Token ledger | `app/services/token_ledger.rb` |
-| Job, retry policy | `app/jobs/llm_inference_job.rb` |
-| Messages controller | `app/controllers/messages_controller.rb` |
+| Job and retry policy | `app/jobs/llm_inference_job.rb` |
+| Rate limiter / token ledger | `app/services/rate_limiter.rb`, `app/services/token_ledger.rb` |
+| Moderation / LLM client | `app/services/content_moderator.rb`, `app/services/llm_client.rb` |
 | Load test | `script/load/`, [`docs/load_test.md`](docs/load_test.md) |
+
+Built with [Claude Code](https://claude.com/claude-code) using the setup in [`.claude/`](.claude)
+and [`CLAUDE.md`](CLAUDE.md).
